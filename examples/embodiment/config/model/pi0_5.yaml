@@ -1,44 +1,46 @@
-model_type: "openpi"
+model_type: "openpi" # 选择 RLinf 的 OpenPI 模型适配器；训练时会走 rlinf/models/embodiment/openpi/openpi_action_model.py。
 
 # Model path - should be set in specific config files
-model_path: "/path/to/model/openpi"
+model_path: "/path/to/model/openpi" # SFT / base checkpoint 路径占位符；具体实验 yaml 通常会覆盖成真实 pi0.5 checkpoint。
 
-precision: null # for openpi, precision is null, please do not change this value
+precision: null # OpenPI 这里保持 null；不要随意改 bf16/fp16，否则容易和 OpenPI PyTorch 权重及 RLinf wrapper 的 dtype 处理冲突。
 
 # Action and chunk settings
-num_action_chunks: 10
-action_dim: 7
+num_action_chunks: 10 # RLinf 实际拿来执行、计算 logprob/reward/value 的动作数；它消费 OpenPI 输出的动作块，在 RLinf 里表示“每次策略输出后，实际执行和训练记账的连续动作步数”，不是“动作块的数量”。
+action_dim: 7 # 环境实际执行的动作维度；LIBERO 只用前 7 维，OpenPI 内部可 pad 到模型动作维度。
 
 # LoRA settings
-is_lora: False
-lora_rank: 32
+is_lora: False # 是否启用 RLinf 侧 LoRA 训练；False 表示默认按全量/专家部分参数配置训练，具体实验可覆盖为 True 降显存。
+lora_rank: 32 # LoRA 低秩矩阵 rank；只有 is_lora=True 时才真正决定可训练 LoRA 参数规模。rank 越小：可训练参数更少显存占用更低训练更快但表达能力更弱，可能学不动复杂变化
 
 # Training settings
-use_proprio: True
-num_steps: 5
-add_value_head: False
+use_proprio: True # 是否使用机器人 proprio/state 输入；OpenPI 的 observation.state 会进入动作模型或 pi0.5 的 prompt/state 处理链路。
+num_steps: 5 # flow denoise 迭代步数；RLinf sample_actions 中会用这个步数从噪声逐步积分生成连续动作。
+add_value_head: False # 是否在 actor 模型内部加 PPO critic/value head；PPO 配置通常会覆盖为 True，否则不会输出 value_pred。
 
 # openpi specific parameters
 openpi:
-  config_name: "pi05_libero"
-  num_images_in_input: 2
-  noise_level: 0.5
-  action_chunk: ${actor.model.num_action_chunks}
-  num_steps: ${actor.model.num_steps}
-  train_expert_only: True
-  action_env_dim: ${actor.model.action_dim}
-  noise_method: "flow_sde"
-  add_value_head: ${actor.model.add_value_head}
-  value_after_vlm: False
-  value_vlm_mode: "mean_token"
-  detach_critic_input: null
+  config_name: "pi05_libero" # 选择 RLinf 内置 OpenPI data/model config；对应 pi0.5 + LIBERO 的 checkpoint、norm stats、action_horizon 等约定。
+  num_images_in_input: 2 # 实际使用的图像路数；LIBERO 通常是第三人称相机 + wrist 相机，右腕图像可由 transform padding。
+  noise_level: 0.5 # flow_sde 默认噪声强度；训练 rollout 时控制在 denoise 某一步注入随机性的尺度。它不是把模型从 Flow Matching 变成了普通扩散模型，而是在 Flow Matching 的采样轨迹上加了 SDE-style stochasticity。x_t = x_t + dt * v_theta + noise_level * 随机噪声项
+  action_chunk: ${actor.model.num_action_chunks} # 继承 num_action_chunks；RLinf wrapper 会用它裁剪 OpenPI 输出动作块的前若干步参与环境交互和 PPO 记账。
+  num_steps: ${actor.model.num_steps} # 继承上面的 denoise 步数；sample_actions 里循环 num_steps 次生成动作。
+  train_expert_only: True # 只训练 action expert 相关模块，尽量冻结/保护 VLM 主干；用于降低训练成本和稳定 RL 微调。
+  action_env_dim: ${actor.model.action_dim} # 环境动作维度，继承 action_dim；用于把 OpenPI 输出裁剪/映射到 LIBERO 的 7 维动作。
+  noise_method: "flow_sde" # rollout 时的 flow 采样/加噪方式；可选 flow_ode、flow_sde、flow_noise、flow_cps 等。
+  add_value_head: ${actor.model.add_value_head} # 继承 actor.model.add_value_head；决定是否在 OpenPI actor 内部挂 critic/value head。
+  #value_after_vlm: False critic 用更靠近动作生成端的特征，也就是 action expert / suffix 输出。这个特征和当前 noisy action、timestep、动作生成过程关系更强。
+  #value_after_vlm: True  critic 用 VLM 那边的 prefix 特征，也就是图像和语言理解后的表示。这个特征更像“当前任务和场景状态理解”，不直接绑定某一步 denoise action token。
+  value_after_vlm: False # value head 是否接在 VLM prefix 表示后；pi0.5 的部分实验会覆盖为 True 来用 VLM token 特征估值。
+  value_vlm_mode: "mean_token" # 当 value_after_vlm=True 时，如何聚合 VLM token 特征；mean_token 表示取 token 平均作为 value 输入。
+  detach_critic_input: null # critic 输入是否 detach 的默认占位；具体实验常覆盖 True/False，null 表示此基础模板不强行指定策略。
 
   # DSRL specific configurations (disabled by default)
-  use_dsrl: False
-  dsrl_state_dim: 8
-  dsrl_action_noise_dim: 32
-  dsrl_num_q_heads: 10
-  dsrl_agg_q: "mean"
-  dsrl_image_latent_dim: 64
-  dsrl_state_latent_dim: 64
-  dsrl_hidden_dims: [128, 128, 128]
+  use_dsrl: False # 是否启用 DSRL 分支；False 表示普通 PPO/GRPO OpenPI 微调，不初始化 DSRL 的 Q 网络和高斯策略。
+  dsrl_state_dim: 8 # DSRL 状态编码器期望的原始 state 维度；只在 use_dsrl=True 时使用。
+  dsrl_action_noise_dim: 32 # DSRL GaussianPolicy 输出的动作噪声维度；通常对齐 OpenPI 内部 action_dim=32 的噪声空间。
+  dsrl_num_q_heads: 10 # DSRL 使用的 Q head 数量；多个 Q 头用于更稳健地估计动作价值。
+  dsrl_agg_q: "mean" # 多个 Q head 的聚合方式；mean 表示取平均，也可能支持 min 等更保守策略。
+  dsrl_image_latent_dim: 64 # DSRL 轻量图像编码器输出维度；只影响 DSRL 辅助分支，不影响默认 OpenPI 主干。
+  dsrl_state_latent_dim: 64 # DSRL state encoder 隐向量维度；只在 use_dsrl=True 时参与 Q/value 估计。
+  dsrl_hidden_dims: [128, 128, 128] # DSRL Q head / GaussianPolicy 的 MLP 隐层宽度列表；控制辅助网络容量。
