@@ -1,160 +1,163 @@
-defaults:
-  - env/libero_spatial@env.train
-  - env/libero_spatial@env.eval
-  - model/pi0@actor.model
-  - training_backend/fsdp@actor.fsdp_config
-  - weight_syncer/patch_syncer@weight_syncer
-  - override hydra/job_logging: stdout
+defaults: # Hydra 默认配置列表，用来组合本实验需要的环境、模型、训练后端和日志配置。
+  - env/libero_spatial@env.train # 把 env/libero_spatial.yaml 加载到 env.train，作为训练环境配置。
+  - env/libero_spatial@env.eval # 把 env/libero_spatial.yaml 加载到 env.eval，作为评估环境配置。
+  - model/pi0@actor.model # 把 model/pi0.yaml 加载到 actor.model，说明本实验使用 pi0 模型配置。
+  - training_backend/fsdp@actor.fsdp_config # 把 FSDP 训练后端配置加载到 actor.fsdp_config。
+  - weight_syncer/patch_syncer@weight_syncer # 使用 patch_syncer 作为 actor 到 rollout 的权重同步方案。
+  - override hydra/job_logging: stdout # 覆盖 Hydra 日志配置，让运行日志直接输出到标准输出。
 
-hydra:
-  run:
-    dir: .
-  output_subdir: null
-  searchpath:
-    - file://${oc.env:EMBODIED_PATH}/config/
+hydra: # Hydra 配置系统本身的设置，负责工作目录、配置搜索路径和日志行为。
+  run: # 控制 Hydra 每次运行时的工作目录。
+    dir: . # 运行时保持当前目录为工作目录，避免 Hydra 自动切到 outputs/时间戳目录。
+  output_subdir: null # 不生成 Hydra 默认的 .hydra 输出子目录，最终配置由 RLinf 自己写入日志目录。
+  searchpath: # 额外配置搜索路径，告诉 Hydra 除当前路径外还去哪里找 YAML 配置。
+    - file://${oc.env:EMBODIED_PATH}/config/ # 从 EMBODIED_PATH 环境变量指向的 examples/embodiment/config 目录查找子配置。
 
-cluster:
-  num_nodes: 1
-  component_placement:
-    actor,env,rollout: all
+cluster: # RLinf 集群与组件放置配置，决定 actor、env、rollout 放到哪些节点或 GPU 上。
+  num_nodes: 1 # 本实验只使用 1 台机器。
+  component_placement: # 各个 RLinf 组件的资源放置规则。
+    actor,env,rollout: all # actor、env、rollout 都放到全部可用资源上；单卡时三者共享同一张 GPU。
 
-runner:
-  task_type: embodied
-  logger:
-    log_path: "../results"
-    project_name: rlinf
-    experiment_name: "libero_spatial_ppo_openpi"
-    logger_backends: ["tensorboard"] # wandb, swanlab
+runner: # 训练运行器配置，控制任务类型、日志、训练轮数、保存与恢复。
+  task_type: embodied # 任务类型是具身智能任务，即机器人/VLA 与环境交互的 RL。
+  logger: # 日志记录配置，控制日志写到哪里以及用什么后端记录。
+    log_path: "../results" # 日志、TensorBoard、配置快照、checkpoint 和视频的默认根目录。
+    project_name: rlinf # 日志系统里的项目名，用于把多个实验归到同一个项目下。
+    experiment_name: "libero_spatial_ppo_openpi" # 本次实验名称，用于区分不同训练实验。
+    logger_backends: ["tensorboard"] # 使用 TensorBoard 记录指标；也可扩展为 wandb 或 swanlab。
 
-  max_epochs: 1000
-  max_steps: -1
+  max_epochs: 1000 # 最大训练 epoch 数；每个 epoch 通常包含 rollout、训练更新和日志记录。
+  max_steps: -1 # 最大训练 step 数；-1 表示不按 step 限制，主要由 max_epochs 控制。
 
-  only_eval: False
-  val_check_interval: -1
-  save_interval: 40
+  only_eval: False # 是否只做评估不训练；False 表示正常训练。
+  val_check_interval: -1 # 评估间隔；-1 表示不按固定训练间隔触发验证评估。
+  save_interval: 40 # checkpoint 保存间隔，每 40 个 epoch 保存一次。
 
-  resume_dir: null # Optional: path to a saved checkpoint directory, such as 'checkpoints/global_step_10'. If not None, it will be used to resume training.
-  ckpt_path: null  # Optional: path to a .pt checkpoint. If not None, it will be loaded after the model is instantiated (for evaluation).
+  resume_dir: null # 从 RLinf 保存的 checkpoint 目录恢复训练；null 表示不恢复。
+  ckpt_path: null # 直接加载某个 .pt checkpoint，常用于评估或特殊初始化；null 表示不额外加载。
 
-algorithm:
-  normalize_advantages: True
-  kl_penalty: kl  # how to estimate kl divergence: kl or kl_penalty
-  group_size: 1
-  reward_coef: 1.0
+algorithm: # 强化学习算法配置，控制 rollout、优势估计、PPO 损失、采样和奖励处理。
+  normalize_advantages: True # 是否对优势函数做归一化，通常能让 PPO 更新更稳定。
+  kl_penalty: kl # KL 计算或惩罚方式；这里使用 kl。
+  group_size: 1 # 分组采样大小，当前每组 1 条轨迹。
+  reward_coef: 1.0 # 奖励系数，用于整体缩放环境奖励。  奖励放大/缩小倍数
 
-  rollout_epoch: 8
-  eval_rollout_epoch: 1 # set eval_rollout_epoch > 0 when enable runner.only_eval or runner.val_check_interval > 0
+  #当前策略模型去 64 个并行环境里跑 240 步
+  #收集回来很多条 trajectory / partial trajectory
+  #这整批数据叫一次 rollout
 
-  reward_type: chunk_level
-  logprob_type: chunk_level
-  entropy_type: token_level
+  rollout_epoch: 8 # 每个训练 epoch 内采集 rollout 的轮数；standard 配置比 quickstart 更大。   rollout = 当前模型去环境里跑，收集训练用的轨迹数据  rollout_epoch = 每个训练 epoch 要采几轮这样的轨迹数据
+  eval_rollout_epoch: 1 # 每次评估时采集 rollout 的轮数；只评估或启用验证时需要大于 0。
 
-  update_epoch: 4
-  adv_type: gae
-  loss_type: actor_critic
-  loss_agg_func: "token-mean" 
-  kl_beta: 0.0
-  entropy_bonus: 0
-  clip_ratio_high: 0.2
-  clip_ratio_low: 0.2
-  clip_ratio_c: 3.0
-  value_clip: 0.2
-  huber_delta: 10.0
+  reward_type: chunk_level # 奖励按 action chunk 粒度统计。  表示 把模型一次输出的 action chunk 当成一个 RL 决策单元，奖励按这个动作块来分配和计算。
+  logprob_type: chunk_level # log probability 按 action chunk 粒度统计。
+  entropy_type: token_level # entropy 按 token 粒度统计，用于衡量动作生成分布的不确定性。
 
-  gamma: 0.99
-  gae_lambda: 0.95
+  update_epoch: 4 # 同一批 rollout 数据重复训练更新的轮数。
+  adv_type: gae # 使用 GAE 计算优势函数。
+  loss_type: actor_critic # 使用 actor-critic 损失，同时训练策略和价值函数。
+  loss_agg_func: "token-mean" # loss 聚合方式，对 token 维度取平均。
+  kl_beta: 0.0 # KL 惩罚权重；0 表示当前不额外加入 KL 惩罚项。
+  entropy_bonus: 0 # entropy bonus 权重；0 表示不额外鼓励探索熵。actor_loss = policy_loss - entropy_coef * entropy
+  clip_ratio_high: 0.2 # PPO ratio 上界裁剪幅度，防止策略一次更新过大。
+  clip_ratio_low: 0.2 # PPO ratio 下界裁剪幅度，防止策略概率下降过猛。
+  clip_ratio_c: 3.0 # 双重裁剪或扩展裁剪相关阈值，用于限制极端 ratio。
+  value_clip: 0.2 # value function 裁剪范围，防止 critic 更新过大。
+  huber_delta: 10.0 # Huber loss 的 delta，用于 value loss 的稳健误差计算。
+  #   #value_loss = HuberLoss(
+  #   value_pred,
+  #   return_target,
+  #   delta=huber_delta
+  # )
 
-  filter_rewards: False
-  rewards_lower_bound: 0.1
-  rewards_upper_bound: 0.9
-  # params for generation
-  sampling_params:
-    do_sample: True
-    temperature_train: 1.0
-    temperature_eval: 0.6
-    top_k: 50
-    top_p: 1.0
-    repetition_penalty: 1.0
-    add_BOS: False
 
-  # length argument for autoregressive sampling
-  # max length means max amount of tokens to generate
-  length_params:
-    max_new_token: null
-    max_length: 1024
-    min_length: 1
+  gamma: 0.99 # 折扣因子，越接近 1 越重视长期奖励。
+  gae_lambda: 0.95 # GAE 的 lambda，平衡偏差和方差。
 
-env:
-  group_name: "EnvGroup"
+  filter_rewards: False # 是否过滤奖励样本；False 表示不按上下界过滤。
+  rewards_lower_bound: 0.1 # 奖励过滤下界，仅在 filter_rewards=True 时生效。
+  rewards_upper_bound: 0.9 # 奖励过滤上界，仅在 filter_rewards=True 时生效。
+  sampling_params: # 动作生成采样参数，控制 rollout 时策略如何从分布中采样动作。
+    do_sample: True # 是否启用随机采样；True 表示不是完全贪心生成。
+    temperature_train: 1.0 # 训练 rollout 时的采样温度，越高越随机。
+    temperature_eval: 0.6 # 评估 rollout 时的采样温度，通常比训练更保守。
+    top_k: 50 # 采样时只从概率最高的 50 个候选中选择。
+    top_p: 1.0 # nucleus sampling 的累计概率阈值；1.0 表示不额外截断。
+    repetition_penalty: 1.0 # 重复惩罚系数；1.0 表示不惩罚重复。
+    add_BOS: False # 是否给生成输入额外添加 BOS token；OpenPI 这里不添加。
 
-  # Override the default values in env/libero_spatial
-  train:
-    total_num_envs: 64
-    max_episode_steps: 240 # max episode steps for truncation
-    max_steps_per_rollout_epoch: 240
-  eval:
-    total_num_envs: 500
-    auto_reset: True
-    ignore_terminations: True
-    max_episode_steps: 240
-    max_steps_per_rollout_epoch: 240
-    group_size: 1
-    is_eval: True
-    video_cfg:
-      save_video: True
-      video_base_dir: ${runner.logger.log_path}/video/eval
+  length_params: # 自回归生成长度参数，限制生成 token 的长度范围。
+    max_new_token: null # 最多生成的新 token 数；null 表示不单独设置。
+    max_length: 1024 # 输入加输出的最大 token 长度。
+    min_length: 1 # 最小生成长度。
 
-rollout:
-  group_name: "RolloutGroup"
-  generation_backend: "huggingface"
-  recompute_logprobs: False
-  unnorm_key: libero_10
-  enable_offload: False
-  pipeline_stage_num: 1
+env: # 环境组件配置，控制训练和评估时 LIBERO 环境怎么创建与交互。
+  group_name: "EnvGroup" # Ray worker group 名称，用于标识环境进程组。
 
-  model:
-    model_path: "/path/to/model/RLinf-Pi0-SFT-Spatial-Object-Goal" # https://huggingface.co/RLinf/RLinf-Pi0-LIBERO-Spatial-Object-Goal-SFT
-    precision: ${actor.model.precision}
+  train: # 训练环境配置，会覆盖 env/libero_spatial.yaml 中的默认训练字段。
+    total_num_envs: 64 # 训练并行环境数量，standard 配置为 64，资源压力较大。
+    max_episode_steps: 240 # 单个 episode 最大步数，到达后截断。
+    max_steps_per_rollout_epoch: 240 # 每个 rollout epoch 最多交互步数。这一轮 rollout 采样最多向前交互 240 个 env step。
+  eval: # 评估环境配置，会覆盖 env/libero_spatial.yaml 中的默认评估字段。
+    total_num_envs: 500 # 评估并行环境总数，用于统计更稳定的成功率。
+    auto_reset: True # episode 结束后是否自动 reset 环境。
+    ignore_terminations: True # 是否忽略环境 termination，常用于固定长度评估。
+    max_episode_steps: 240 # 评估 episode 最大步数。
+    max_steps_per_rollout_epoch: 240 # 评估 rollout epoch 最大交互步数。
+    group_size: 1 # 评估分组大小，当前每组 1 个环境轨迹。
+    is_eval: True # 标记该环境配置用于评估模式。
+    video_cfg: # 评估视频保存配置。
+      save_video: True # 是否保存评估视频。
+      video_base_dir: ${runner.logger.log_path}/video/eval # 评估视频保存目录，依赖 logger.log_path。
 
-actor:
-  group_name: "ActorGroup"
-  training_backend: "fsdp"
-  micro_batch_size: 128
-  global_batch_size: 2048 # maximum : global batch size = micro batch size * actor num_processes.
-  seed: 42
-  enable_offload: False
+rollout: # Rollout 组件配置，控制策略模型如何生成动作并与 env 共同采集轨迹。
+  group_name: "RolloutGroup" # Ray worker group 名称，用于标识 rollout 进程组。
+  generation_backend: "huggingface" # 动作生成后端，这里使用 HuggingFace/PyTorch 路线。
+  recompute_logprobs: False # 是否在 rollout 后重新计算 logprob；False 表示使用生成时记录的 logprob。
+  unnorm_key: libero_10 # 动作反归一化使用的统计 key，来自 checkpoint 内的 norm stats。
+  enable_offload: False # rollout 模型是否启用 offload；standard 配置默认不 offload，显存压力更高。
+  pipeline_stage_num: 1 # rollout/env 流水线 stage 数，1 表示不切分多阶段流水线。
 
-  # Override the default values in model/pi0
-  model:
-    model_path: "/path/to/model/RLinf-Pi0-SFT-Spatial-Object-Goal" # https://huggingface.co/RLinf/RLinf-Pi0-LIBERO-Spatial-Object-Goal-SFT
-    num_action_chunks: 5 # interface for the env
-    add_value_head: True
-    # openpi specific parameters
-    openpi:
-      detach_critic_input: True
+  model: # rollout 使用的模型加载配置。
+    model_path: "/path/to/model/RLinf-Pi0-SFT-Spatial-Object-Goal" # rollout 模型路径，实际运行时需要改成真实 SFT checkpoint。  这是 rollout 侧加载 RL 微调初始模型的配置；真正训练更新的是 actor 侧模型，rollout 侧负责用当前模型去环境里采样动作。
+    precision: ${actor.model.precision} # rollout 精度继承 actor.model.precision；OpenPI 应保持 null。是 rollout 模型的精度跟 actor 模型一致
 
-  optim:
-    lr: 5.0e-6
-    value_lr: 1.0e-4
-    adam_beta1: 0.9
-    adam_beta2: 0.95
-    adam_eps: 1.0e-08
-    weight_decay: 0.01
-    clip_grad: 1.0
-    critic_warmup_steps: 0
+actor: # Actor 训练组件配置，负责根据 rollout 数据计算 loss 并更新模型参数。
+  group_name: "ActorGroup" # Ray worker group 名称，用于标识 actor 训练进程组。
+  training_backend: "fsdp" # 训练后端使用 FSDP。
+  micro_batch_size: 128 # 单次前后向 micro batch 大小，越大显存占用越高。显卡一次前向/反向实际吃进去 128 条样本。因为 2048 太大，不能一次全塞进显存，所以会拆成多个 micro batch 做梯度累积。
+  global_batch_size: 2048 # PPO 更新使用的全局 batch size，需能被 micro_batch_size * actor 进程数整除。  一次 PPO update 期望使用总共 2048 条训练样本来做梯度更新。这个“样本”来自前面 rollout 和环境交互得到的经验
+  seed: 42 # 随机种子，用于提高实验可复现性。
+  enable_offload: False # actor 参数或优化器是否 offload；standard 配置默认不 offload。
 
-  # Override the default values in training_backend/fsdp
-  fsdp_config:
-    strategy: "fsdp"
-    sharding_strategy: "no_shard"
-    gradient_checkpointing: False # for openpi, gradient checkpointing is not supported, please do not change this value
-    mixed_precision:
-      param_dtype: ${actor.model.precision}
-      reduce_dtype: ${actor.model.precision}
-      buffer_dtype: ${actor.model.precision}
+  model: # actor 侧模型配置，会覆盖 model/pi0.yaml 的默认字段。
+    model_path: "/path/to/model/RLinf-Pi0-SFT-Spatial-Object-Goal" # actor 初始模型路径，实际运行时需要改成真实 SFT checkpoint。
+    num_action_chunks: 5 # RLinf 每次策略输出后实际执行和 PPO 记账的连续动作步数；不是“动作块的数量”。
+    add_value_head: True # 是否给策略模型添加 value head，用于 actor-critic/PPO 的 critic 训练。
+    openpi: # OpenPI 特有参数覆盖。
+      detach_critic_input: True # critic 输入是否 detach，避免 critic loss 反传影响部分策略表示。意思是 critic 在计算 value loss 时，可以读取某些中间特征作为输入，但这些特征会先被 detach。这样 critic loss 反向传播时，梯度不会继续传回 OpenPI 的共享表示层或 action expert 前面的部分。
 
-reward:
-  use_reward_model: False
+  optim: # actor 优化器配置，控制策略和价值头的学习率、正则和梯度裁剪。
+    lr: 5.0e-6 # 策略网络学习率。
+    value_lr: 1.0e-4 # value head/critic 学习率。
+    adam_beta1: 0.9 # Adam 优化器 beta1，一阶动量系数。
+    adam_beta2: 0.95 # Adam 优化器 beta2，二阶动量系数。
+    adam_eps: 1.0e-08 # Adam 优化器 epsilon，防止除零并稳定数值。
+    weight_decay: 0.01 # 权重衰减系数，用于正则化。
+    clip_grad: 1.0 # 梯度裁剪阈值，限制梯度范数过大。
+    critic_warmup_steps: 0 # critic warmup 步数，0 表示不单独预热 critic。
 
-critic:
-  use_critic_model: False
+  fsdp_config: # actor 的 FSDP 配置，会覆盖 training_backend/fsdp.yaml 的默认字段。
+    strategy: "fsdp" # 使用 FSDP 分布式训练策略。
+    sharding_strategy: "no_shard" # 不切分参数分片；单卡时通常等价于不做多卡 sharding。
+    gradient_checkpointing: False # OpenPI 官方配置不支持 gradient checkpointing，不要手动打开。
+    mixed_precision: # FSDP mixed precision 配置。
+      param_dtype: ${actor.model.precision} # 参数 dtype 继承 actor.model.precision；OpenPI 应保持 null。
+      reduce_dtype: ${actor.model.precision} # 梯度通信 reduce dtype 继承 actor.model.precision；OpenPI 应保持 null。
+      buffer_dtype: ${actor.model.precision} # buffer dtype 继承 actor.model.precision；OpenPI 应保持 null。
+
+reward: # 奖励模型配置，控制是否额外使用学习到的 reward model。
+  use_reward_model: False # 不使用额外 reward model，直接使用环境奖励。
+
+critic: # 独立 critic 模型配置，控制是否使用单独的 critic worker/model。
+  use_critic_model: False # 不使用独立 critic 模型，critic/value head 集成在 actor 模型中。
