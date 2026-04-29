@@ -25,9 +25,9 @@ init_params:  # 中文学习注释：传给 IsaacLab 任务构造器的底层参
   num_envs: null  # 中文学习注释：实际并行环境数由 IsaaclabBaseEnv 在运行时写入。
   max_episode_steps: ${env.train.max_episode_steps} # max episode steps for truncation
   task_description: "Stack the red block on the blue block, then stack the green block on the red block."  # 中文学习注释：送给 OpenPI 的语言指令。
-  table_cam:  # 中文学习注释：第三人称/table 相机分辨率。
-    height: 256  # 中文学习注释：图像高度，OpenPI 预处理会按该尺寸接收图像。
-    width: 256  # 中文学习注释：图像宽度，和 SFT 数据/模型配置保持一致。
-  wrist_cam:  # 中文学习注释：腕部相机分辨率。
-    height: 256  # 中文学习注释：图像高度，OpenPI 预处理会按该尺寸接收图像。
-    width: 256  # 中文学习注释：图像宽度，和 SFT 数据/模型配置保持一致。
+  table_cam:  # 中文学习注释：第三人称/table 相机在 IsaacLab 环境里渲染/输出的观测分辨率。
+    height: 256  # 中文学习注释：环境输出图像高度；后续 OpenPI model transform 会再按视觉塔需要处理，通常不是最终 224 模型输入尺寸。
+    width: 256  # 中文学习注释：环境输出图像宽度；这里要和 SFT 数据采集时的相机观测尺寸保持一致。
+  wrist_cam:  # 中文学习注释：腕部相机在 IsaacLab 环境里渲染/输出的观测分辨率。
+    height: 256  # 中文学习注释：环境输出图像高度；OpenPI policy 先接收该观测图像，后续模型级预处理再变到视觉塔输入尺寸。
+    width: 256  # 中文学习注释：环境输出图像宽度；这里要和 SFT 数据采集时的腕部相机观测尺寸保持一致。
