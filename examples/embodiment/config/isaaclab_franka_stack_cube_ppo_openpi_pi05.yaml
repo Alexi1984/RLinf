@@ -69,14 +69,14 @@ algorithm:  # 中文学习注释：PPO/actor-critic 算法超参数，控制 rol
   rewards_lower_bound: 0.1  # 中文学习注释：启用 filter_rewards 时的奖励下界。
   rewards_upper_bound: 0.9  # 中文学习注释：启用 filter_rewards 时的奖励上界。
   # params for generation
-  sampling_params:
-    do_sample: True  # 中文学习注释：通用采样开关；对 OpenPI flow 动作模型不是最核心的动作采样控制项。
-    temperature_train: 1.0  # 中文学习注释：训练 rollout 的通用采样温度；OpenPI 主要由 flow/noise 参数控制动作随机性。
-    temperature_eval: 0.6  # 中文学习注释：评估时更保守的通用采样温度。
-    top_k: 50  # 中文学习注释：文本生成式策略常用 top-k；OpenPI 连续动作 flow 中通常不是主要控制项。
-    top_p: 1.0  # 中文学习注释：nucleus sampling 阈值；1.0 表示不额外截断候选。
-    repetition_penalty: 1.0  # 中文学习注释：重复惩罚系数；1.0 表示不惩罚。
-    add_BOS: False  # 中文学习注释：是否添加 BOS token；OpenPI 输入管线通常不需要额外添加。
+  sampling_params:  # 中文学习注释：RLinf 通用采样参数，主要服务 OpenVLA 等 token 生成式策略；当前 OpenPI flow 连续动作链路基本不靠这一组字段控制动作采样。
+    do_sample: True  # 中文学习注释：通用采样开关；当前 OpenPI 分支不会用它决定 flow 动作是否采样，主要不适用于 OpenPI。
+    temperature_train: 1.0  # 中文学习注释：训练 rollout 的 token 采样温度；当前 OpenPI 不通过该字段调动作随机性，动作随机性主要看 flow/noise 参数。
+    temperature_eval: 0.6  # 中文学习注释：评估时 token 采样温度；当前 OpenPI flow 动作生成基本不适用。
+    top_k: 50  # 中文学习注释：token 生成式策略的 top-k 截断；当前 OpenPI 连续动作 flow 没有词表候选，基本不适用。
+    top_p: 1.0  # 中文学习注释：token 生成式策略的 nucleus sampling 阈值；当前 OpenPI 连续动作 flow 基本不适用。
+    repetition_penalty: 1.0  # 中文学习注释：文本/token 重复惩罚；当前 OpenPI 输出连续动作而非文本，基本不适用。
+    add_BOS: False  # 中文学习注释：是否添加 BOS token；当前 OpenPI 输入由 dataconfig/transform 组织，基本不适用。
 
   # length argument for autoregressive sampling
   # max length means max amount of tokens to generate
