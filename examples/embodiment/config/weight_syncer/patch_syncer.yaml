@@ -1,6 +1,8 @@
-type: patch
+# 中文学习注释：actor 到 rollout 的权重同步配置。
+# PPO 更新发生在 actor，rollout 采样前需要把新策略参数同步过去。
+type: patch  # 中文学习注释：使用 patch/delta 方式把 actor 参数变化同步给 rollout。
 patch:
-  snapshot_device: cpu
-  transport_device: cpu
-  delta_encoding: True
-  compression: none
+  snapshot_device: cpu  # 中文学习注释：在 CPU 上保存参数快照，减少 GPU 额外占用。
+  transport_device: cpu  # 中文学习注释：通过 CPU 内存传输权重 delta。
+  delta_encoding: True  # 中文学习注释：只编码变化量，降低同步开销。
+  compression: none  # 中文学习注释：不压缩 patch，减少 CPU 压缩开销。

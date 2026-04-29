@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""中文学习注释：RLinf 的 OpenPI 动作模型 wrapper。
+
+这个文件把 OpenPI/π0/π0.5 的连续动作 flow 模型接入 RLinf PPO：负责观测预处理、动作采样、logprob/value 计算、LoRA/冻结策略、SFT/DAGGER/NFT/SAC/DSRL 等多种训练路径。
+"""
+
 import math
 import random
 from collections.abc import Sequence
@@ -38,6 +43,7 @@ def _to_numpy(x):
 
 
 @dataclass(frozen=True)
+# 中文学习注释：在 OpenPI 原始 Pi0Config 上增加 RLinf 需要的训练/价值头/DSRL 配置字段。
 class OpenPi0Config(Pi0Config):
     # config for rl
     config_name: str = "pi0_libero"  # pi0_libero, pi05_libero, pi0_maniskill, pi05_maniskill, pi0_metaworld, pi05_metaworld
@@ -86,6 +92,7 @@ class OpenPi0Config(Pi0Config):
     is_nft: bool = False
 
 
+# 中文学习注释：核心 wrapper 类；既继承 OpenPI PyTorch 模型，也实现 RLinf BasePolicy 需要的接口。
 class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
     """
     Pi0 model for reinforcement learning action prediction.
@@ -128,7 +135,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
             "time_mlp_out",
         ]
 
-    def __init__(
+    def __init__(  # 中文学习注释：初始化 OpenPI 模型、输入输出 transform、value head、LoRA/冻结策略等。
         self,
         config: OpenPi0Config,
     ):
@@ -240,9 +247,10 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
             setattr(module, "_fsdp_wrap_name", path_parts[-1] if path_parts else name)
 
     def set_global_step(self, global_step):
+        # 中文学习注释：保存全局训练步数，供 schedule/noise/日志等路径使用。
         self.global_step = global_step
 
-    def setup_wrappers(
+    def setup_wrappers(  # 中文学习注释：构建 OpenPI 的数据 transform、输入 transform、输出 transform 包装器。
         self,
         transforms: Sequence[_transforms.DataTransformFn] = (),
         output_transforms: Sequence[_transforms.DataTransformFn] = (),
@@ -251,6 +259,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         self._output_transform = _transforms.compose(output_transforms)
 
     def input_transform(self, obs: dict, transpose=True):
+        # 中文学习注释：把 RLinf env_obs 转成 OpenPI 需要的 numpy/JAX 风格 observation。
         inputs = jax.tree.map(lambda x: x, obs)
         # process input
         first_process = "prompt" in inputs.keys()
@@ -294,6 +303,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return inputs
 
     def output_transform(self, outputs):
+        # 中文学习注释：把 OpenPI 输出动作转回环境可执行动作格式。
         # split & transform
         batch_size = outputs["actions"].shape[0]
         transformed_samples = []
@@ -310,6 +320,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return outputs
 
     def forward(self, forward_type=ForwardType.DEFAULT, **kwargs):
+        # 中文学习注释：统一 forward 分发入口；根据 forward_type 选择 PPO/SFT/NFT/SAC 等训练路径。
         if forward_type == ForwardType.SFT:
             return self.sft_forward(**kwargs)
         elif forward_type == ForwardType.DEFAULT:
@@ -324,6 +335,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
             raise NotImplementedError
 
     def sft_forward(self, data, **kwargs):
+        # 中文学习注释：监督微调路径，使用专家动作直接训练 OpenPI 动作预测。
         if hasattr(self, "gradient_checkpointing_disable"):
             self.gradient_checkpointing_disable()
         observation = data["observation"]
@@ -331,6 +343,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return super().forward(observation, actions)
 
     def prepare_dagger_sft_batch(self, batch):
+        # 中文学习注释：DAGGER/SFT batch 整理，把环境采样数据拼成可监督训练的格式。
         """Prepare replay-buffer samples for DAgger SFT updates."""
         device = next(self.parameters()).device
         obs_dict = {}
@@ -376,7 +389,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
             "actions": actions.to(torch.float32).to(device),
         }
 
-    def default_forward(
+    def default_forward(  # 中文学习注释：PPO actor-critic 默认训练路径，计算 logprob/value/loss 所需输出。
         self,
         forward_inputs: dict[str, torch.Tensor],
         **kwargs,
@@ -462,6 +475,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return result
 
     def obs_processor(self, env_obs):
+        # 中文学习注释：把 EnvWorker 返回的 batch obs 整理成模型输入字段。
         # base observation
         processed_obs = {
             "observation/image": env_obs["main_images"],
@@ -485,6 +499,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return processed_obs
 
     def precision_processor(self, processed_obs):
+        # 中文学习注释：根据配置处理输入张量 dtype，避免图像/state/动作精度不一致。
         device = next(self.parameters()).device
         for key, value in processed_obs.items():
             if isinstance(value, list):
@@ -503,7 +518,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
                     ).contiguous()
         return processed_obs
 
-    def predict_action_batch(
+    def predict_action_batch(  # 中文学习注释：批量预测动作的推理接口，rollout worker 采样动作时会调用。
         self,
         env_obs,
         mode: Literal["train", "eval"] = "train",
@@ -597,7 +612,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return actions, result
 
     @torch.no_grad()
-    def sample_actions(
+    def sample_actions(  # 中文学习注释：OpenPI flow 动作采样核心；从噪声出发迭代 num_steps 得到连续动作序列。
         self,
         observation: _model.Observation,
         noise=None,
@@ -723,7 +738,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         timesteps = torch.cat([timesteps, torch.tensor([0.0], device=device)])
         return timesteps
 
-    def sample_mean_var_val(
+    def sample_mean_var_val(  # 中文学习注释：采样动作分布的均值/方差/value，供 PPO logprob/value 计算使用。
         self,
         x_t,
         idx,
@@ -798,7 +813,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         x_t_mean = x0_pred * x0_weight + x1_pred * x1_weight
         return x_t_mean, x_t_std, value_t, v_t
 
-    def get_suffix_out(
+    def get_suffix_out(  # 中文学习注释：取得 action expert/suffix 的隐藏表示，可用于 value head 或辅助训练。
         self,
         state,
         prefix_pad_masks,
@@ -847,6 +862,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return suffix_out
 
     def get_velocity(self, state, x_t, timestep, prefix_pad_masks, past_key_values):
+        # 中文学习注释：flow matching 的速度场 v_theta(x_t, t, obs)，用于一步 denoise/ODE/SDE 积分。
         """Compute velocity prediction v_t and raw suffix_out at a given timestep."""
         suffix_out = self.get_suffix_out(
             state, prefix_pad_masks, past_key_values, x_t, timestep
@@ -855,6 +871,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return v_t, suffix_out
 
     def _build_prefix_cache(self, images, img_masks, lang_tokens, lang_masks):
+        # 中文学习注释：缓存 VLM prefix 的 KV，避免每个 denoise step 重复编码图像和语言。
         """Embed prefix tokens and compute KV cache for efficient suffix generation."""
         prefix_embs, prefix_pad_masks, prefix_att_masks = self.embed_prefix(
             images, img_masks, lang_tokens, lang_masks
@@ -873,6 +890,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return prefix_output, prefix_pad_masks, past_key_values
 
     def _compute_value_from_suffix(self, suffix_out):
+        # 中文学习注释：从 action expert/suffix token 特征计算状态价值。
         """Compute value from suffix output using value head."""
         if self.config.chunk_critic_input:
             suffix_out_value = torch.mean(
@@ -886,6 +904,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
 
     # TODO: to check potential nan here
     def get_logprob_norm(self, sample, mu, sigma):
+        # 中文学习注释：按高斯分布计算动作样本 logprob，是 PPO ratio 的基础。
         # logprob = log p(x|mu,sigma) = -log(sigma) - 0.5 * log(2 * pi) - 0.5 * ((x - mu) / sigma) ** 2
         if self.config.safe_get_logprob:
             log_prob = -torch.pow((sample - mu), 2)
@@ -901,9 +920,10 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return log_prob
 
     def preprocess_for_train(self, data):
+        # 中文学习注释：训练前统一整理 rollout batch，包括 obs/action/reward/value/logprob 等字段。
         return data
 
-    def get_log_prob_value(
+    def get_log_prob_value(  # 中文学习注释：给定 rollout 数据重新计算当前策略 logprob 和 value，用于 PPO 更新。
         self,
         images,
         img_masks,
@@ -969,6 +989,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return chains_log_probs, chains_values, chains_entropy
 
     def get_value_from_vlm(self, prefix_output):
+        # 中文学习注释：从 VLM/prefix token 表示估计 V(s)，IsaacLab pi0.5 配置使用这个路径。
         # prefix_output:
         # pi05: [bs, (256 * 3 + 200) = 968, 2048]
         # pi0: [bs, (256 * 3 + 48) = 816, 1024]
@@ -997,12 +1018,14 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return values_vlm
 
     def gaussian_entropy(self, sigma):
+        # 中文学习注释：计算高斯动作分布熵，可用于 entropy bonus。
         mask = sigma == 0
         sigma_safe = torch.where(mask, torch.ones_like(sigma), sigma)
         entropy = 0.5 * torch.log(2 * math.pi * math.e * (sigma_safe**2))
         return entropy
 
     def freeze_vlm(self):
+        # 中文学习注释：冻结 VLM 主干，仅训练 action expert/value/LoRA 等指定模块，降低 RL 微调风险。
         if self.config.train_expert_only:
             # Base freeze: paligemma (SigLIP vision encoder + Gemma)
             self.paligemma_with_expert.paligemma.eval()
@@ -1066,7 +1089,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
 
     # ===== DSRL-specific methods =====
 
-    def sac_forward(
+    def sac_forward(  # 中文学习注释：SAC/DSRL 相关前向路径，非默认 PPO 训练主线。
         self, obs=None, data=None, train=False, return_dist_params=False, **kwargs
     ):
         """SAC forward pass for DSRL.
@@ -1135,7 +1158,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
 
         return action_noise, logprobs, dist_params
 
-    def sac_q_forward(
+    def sac_q_forward(  # 中文学习注释：SAC/DSRL 的 Q 网络前向路径。
         self,
         obs=None,
         data=None,
@@ -1265,7 +1288,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
             nft_state["nft_noise_level"],
         )
 
-    def _get_noise_level(
+    def _get_noise_level(  # 中文学习注释：根据配置/训练状态决定当前 flow 采样噪声强度。
         self, device: torch.device, dtype: torch.dtype, sample_method: str | None = None
     ) -> torch.Tensor:
         method = sample_method or self.config.noise_method
@@ -1284,6 +1307,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return torch.tensor(noise_level, device=device, dtype=dtype)
 
     def _preprocess_dsrl_images(self, images, train=False):
+        # 中文学习注释：DSRL 分支的轻量图像预处理，不影响默认 PPO/OpenPI 主路径。
         """Preprocess images for DSRL: resize to 64x64, use only agentview camera.
 
         Args:
@@ -1348,6 +1372,7 @@ class OpenPi0ForRLActionPrediction(PI0Pytorch, BasePolicy):
         return resized_img
 
     def _preprocess_states(self, states):
+        # 中文学习注释：DSRL/state 分支的状态预处理。
         """
         Preprocess states: flatten to 2D and convert to bfloat16.
 
