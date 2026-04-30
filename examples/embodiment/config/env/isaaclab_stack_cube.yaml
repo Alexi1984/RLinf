@@ -4,11 +4,11 @@ env_type: isaaclab  # 中文学习注释：告诉 RLinf EnvWorker 使用 IsaacLa
 total_num_envs: null  # 中文学习注释：环境模板里的占位值，顶层 train/eval 配置会覆盖真实并行数。
 auto_reset: False  # 中文学习注释：训练模板默认不自动重置，由 runner/worker 控制 episode 边界。
 ignore_terminations: False  # 中文学习注释：训练模板默认不忽略终止信号；eval 可覆盖为 True 做固定长度评估。
-use_rel_reward: True  # 中文学习注释：使用相对/增量奖励形式，step reward 可反映任务进展。
+use_rel_reward: True  # 中文学习注释：兼容字段；当前 IsaacLab step 直接使用底层 env.step 返回的 reward，本项在当前 stack-cube 路径不实际改写 reward。
 seed: 0  # 中文学习注释：环境模板默认种子，顶层配置通常覆盖。
 group_size: 1  # 中文学习注释：环境分组大小，和算法 group_size 对齐。
 
-reward_coef: 1.0  # 中文学习注释：环境奖励缩放系数。
+reward_coef: 1.0  # 中文学习注释：兼容字段；只在 _calc_step_reward 被调用时缩放 termination 奖励，当前 IsaacLab stack-cube step 未使用它。
 use_fixed_reset_state_ids: False  # 中文学习注释：是否固定 reset 状态；顶层 IsaacLab 实验会覆盖为 True。
 max_steps_per_rollout_epoch: 256  # 中文学习注释：模板默认 rollout 步数上限。
 max_episode_steps: 256 # 中文学习注释：模板默认 episode 截断长度。
