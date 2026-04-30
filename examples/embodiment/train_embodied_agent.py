@@ -49,7 +49,7 @@ def main(cfg) -> None:
     component_placement = HybridComponentPlacement(cfg, cluster)  # 中文学习注释：根据 cluster.component_placement 决定 actor/env/rollout 放在哪些节点/GPU。
 
     # Create actor worker group
-    actor_placement = component_placement.get_strategy("actor")  # 中文学习注释：actor 负责训练更新，因此单独取放置策略。
+    actor_placement = component_placement.get_strategy("actor")  # 中文学习注释：actor 负责训练更新，因此单独取放置策略。拿到 actor 这组进程的运行位置安排。
 
     if cfg.algorithm.loss_type == "embodied_sac":
         from rlinf.workers.actor.fsdp_sac_policy_worker import EmbodiedSACFSDPPolicy
@@ -74,8 +74,8 @@ def main(cfg) -> None:
     )
 
     # Create rollout worker group
-    rollout_placement = component_placement.get_strategy("rollout")  # 中文学习注释：rollout 负责采样动作和 logprob，通常和 actor 同机但职责不同。
-    rollout_group = MultiStepRolloutWorker.create_group(cfg).launch(
+    rollout_placement = component_placement.get_strategy("rollout")  # 中文学习注释：rollout 负责采样动作和 logprob，通常和 actor 同机但职责不同。placement = 座位表，告诉每支队伍坐哪台机器/哪张 GPU
+    rollout_group = MultiStepRolloutWorker.create_group(cfg).launch(#group = 一支队伍，比如 actor 队、rollout 队、env 队
         cluster, name=cfg.rollout.group_name, placement_strategy=rollout_placement
     )
 
@@ -86,7 +86,7 @@ def main(cfg) -> None:
     )
 
     reward_group = None
-    if cfg.get("reward", {}).get("use_reward_model", False) and not cfg.get(
+    if cfg.get("reward", {}).get("use_reward_model", False) and not cfg.get(#检查配置里是否启用了 reward model。
         "reward", {}
     ).get("standalone_realworld", False):
         # Create reward worker group
@@ -95,7 +95,7 @@ def main(cfg) -> None:
             cluster, name=cfg.reward.group_name, placement_strategy=reward_placement
         )
 
-    runner = EmbodiedRunner(
+    runner = EmbodiedRunner(#把 actor / rollout / env / reward 这些部件交给 EmbodiedRunner，让它后面统一安排初始化、rollout、训练更新、日志和保存。
         cfg=cfg,
         actor=actor_group,
         rollout=rollout_group,
