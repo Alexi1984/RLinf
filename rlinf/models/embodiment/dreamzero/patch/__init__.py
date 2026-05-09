@@ -1,4 +1,4 @@
-# Copyright 2025 The RLinf Authors.
+# Copyright 2026 The RLinf Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,13 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-from .end_effectors.base import EndEffectorType
-from .franka_env import FrankaEnv, FrankaRobotConfig, FrankaRobotState
+from rlinf.models.embodiment.dreamzero.patch.wan_causal_model_forward_train import (
+    _forward_train,
+)
+from rlinf.models.embodiment.dreamzero.patch.wan_video_vae import (
+    WanVideoVAE,
+    WanVideoVAE38,
+    WanVideoVAEStateDictConverter,
+)
 
 __all__ = [
-    "EndEffectorType",
-    "FrankaEnv",
-    "FrankaRobotConfig",
-    "FrankaRobotState",
+    "WanVideoVAE",
+    "WanVideoVAE38",
+    "WanVideoVAEStateDictConverter",
+    "_forward_train",
 ]
